@@ -121,3 +121,54 @@ class Com:
         with self.clock_semaphore:
             self.lamport_clock = max(self.lamport_clock, received_timestamp) + 1
             return self.lamport_clock
+    
+    # ========== COMMUNICATION ASYNCHRONE ==========
+    
+    def broadcast(self, payload):
+        """
+        Diffuse un objet à tous les autres processus
+        """
+        timestamp = self._increment_clock_internal()
+        message = BroadcastMessage(self.myId, timestamp, payload)
+        print(f"📢 P{self.myId}: broadcast '{payload}' (t={timestamp})")
+        PyBus.Instance().post(message)
+    
+    def sendTo(self, payload, dest):
+        """
+        Envoie un objet au processus de destination
+        """
+        timestamp = self._increment_clock_internal()
+        message = MessageTo(self.myId, timestamp, payload, dest)
+        print(f"📬 P{self.myId} → P{dest}: '{payload}' (t={timestamp})")
+        PyBus.Instance().post(message)
+    
+    @subscribe(threadMode=Mode.PARALLEL, onEvent=BroadcastMessage)
+    def _on_broadcast_received(self, message):
+        """Gestion des messages de diffusion reçus"""
+        if message.sender == self.myId:
+            return  # Ignore ses propres messages
+        
+        # Met à jour l'horloge pour les messages utilisateur uniquement
+        my_timestamp = self._update_clock_on_receive(message.timestamp)
+        print(f"📻 P{self.myId}: reçoit broadcast '{message.payload}' de P{message.sender} (t={my_timestamp})")
+        
+        # Ajouter à la boîte aux lettres
+        self.mailbox.addMessage(message)
+    
+    @subscribe(threadMode=Mode.PARALLEL, onEvent=MessageTo)
+    def _on_message_to_received(self, message):
+        """Gestion des messages directs reçus"""
+        if not hasattr(message, 'to') or message.to != self.myId:
+            return  # Pas pour nous
+        
+        # Vérifier si c'est un message système (jeton)
+        if hasattr(message, 'payload') and message.payload == 'TOKEN':
+            self._handle_token(message)
+            return
+        
+        # Message utilisateur normal
+        my_timestamp = self._update_clock_on_receive(message.timestamp)
+        print(f"📨 P{self.myId}: reçoit '{message.payload}' de P{message.sender} (t={my_timestamp})")
+        
+        # Ajouter à la boîte aux lettres
+        self.mailbox.addMessage(message)
