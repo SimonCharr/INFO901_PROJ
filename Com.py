@@ -39,8 +39,6 @@ class Com:
     - Synchronisation par barrière
     """
     
-    # Variables de classe pour la gestion des IDs (interdites selon le sujet)
-    # On utilisera un fichier ou un mécanisme de découverte automatique
     _instance_counter = 0
     _counter_lock = Lock()
     _total_processes = 0
@@ -88,8 +86,6 @@ class Com:
         Mécanisme de découverte automatique du nombre de processus
         Pour simplifier, on utilise une variable d'environnement ou un fichier de config
         """
-        # Pour cet exemple, on suppose 3 processus
-        # Dans un vrai projet, on ferait de la découverte réseau
         Com._total_processes = 3
     
     def getNbProcess(self):
@@ -155,11 +151,72 @@ class Com:
         # Ajouter à la boîte aux lettres
         self.mailbox.addMessage(message)
     
+    # ========== SECTION CRITIQUE DISTRIBUÉE ==========
+    
+    def _start_token_management(self):
+        """Démarre la gestion du jeton (appelé par le processus 0)"""
+        def token_manager():
+            sleep(0.5)  # Laisser le temps aux autres de se connecter
+            next_id = (self.myId + 1) % self.getNbProcess()
+            # Message système : pas d'impact sur l'horloge
+            token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
+            print(f"🎯 P{self.myId}: lance le jeton initial")
+            PyBus.Instance().post(token_msg)
+        
+        self.token_thread = Thread(target=token_manager)
+        self.token_thread.start()
+    
+    def _handle_token(self, token_message):
+        """Gestion de la réception du jeton"""
+        with self.token_lock:
+            if self.request_pending:
+                # On attendait le jeton
+                print(f"🔑 P{self.myId}: OBTIENT le jeton")
+                self.token_held = True
+                self.token_event.set()
+            else:
+                # Faire circuler le jeton
+                self._pass_token()
+    
+    def _pass_token(self):
+        """Fait circuler le jeton au processus suivant"""
+        next_id = (self.myId + 1) % self.getNbProcess()
+        token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
+        print(f"🔄 P{self.myId}: passe le jeton à P{next_id}")
+        sleep(0.1) 
+        PyBus.Instance().post(token_msg)
+    
+    def requestSC(self):
+        """
+        Demande l'accès à la section critique (bloquant)
+        """
+        print(f"🙋 P{self.myId}: demande la section critique")
+        with self.token_lock:
+            if self.token_held:
+                return  # On a déjà le jeton
+            self.request_pending = True
+            self.token_event.clear()
+        
+        # Attendre le jeton
+        self.token_event.wait()
+        print(f"✅ P{self.myId}: section critique accordée")
+    
+    def releaseSC(self):
+        """
+        Libère la section critique
+        """
+        print(f"🔓 P{self.myId}: libère la section critique")
+        with self.token_lock:
+            self.token_held = False
+            self.request_pending = False
+            self.token_event.clear()
+            self._pass_token()
+    
     @subscribe(threadMode=Mode.PARALLEL, onEvent=MessageTo)
     def _on_message_to_received(self, message):
         """Gestion des messages directs reçus"""
         if not hasattr(message, 'to') or message.to != self.myId:
-            return  # Pas pour nous
+            return
         
         # Vérifier si c'est un message système (jeton)
         if hasattr(message, 'payload') and message.payload == 'TOKEN':
