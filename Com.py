@@ -237,6 +237,136 @@ class Com:
         self._update_clock_on_receive(message.timestamp)
         self.sync_event.set()
     
+    # ========== COMMUNICATION SYNCHRONE ==========
+    
+    def __init__(self):
+        # ... (code existant) ...
+        # Attribution automatique d'ID
+        with Com._counter_lock:
+            self.myId = Com._instance_counter
+            Com._instance_counter += 1
+        
+        # Horloge de Lamport protégée par sémaphore
+        self.lamport_clock = 0
+        self.clock_semaphore = Semaphore(1)
+        
+        # Boîte aux lettres pour messages asynchrones
+        self.mailbox = Mailbox()
+        
+        # Gestion du jeton pour section critique
+        self.token_held = False
+        self.request_pending = False
+        self.token_event = Event()
+        self.token_lock = Lock()
+        
+        # Synchronisation
+        self.sync_event = Event()
+        
+        # Communication synchrone
+        self.sync_comm_events = {}  # Pour stocker les événements de communication synchrone
+        self.sync_comm_lock = Lock()
+        
+        # Thread pour gestion du jeton
+        self.token_thread = None
+        self.alive = True
+        
+        # S'enregistrer sur le bus
+        PyBus.Instance().register(self, self)
+        
+        # Découverte automatique du nombre de processus
+        self._discover_process_count()
+        
+        # Démarrer la gestion du jeton si c'est le premier processus
+        if self.myId == 0:
+            self._start_token_management()
+    
+    def broadcastSync(self, payload, sender_id):
+        """
+        Communication synchrone par diffusion
+        Si ce processus est l'expéditeur, diffuse et attend les accusés
+        Sinon, attend de recevoir le message
+        """
+        if self.myId == sender_id:
+            # Ce processus diffuse
+            print(f"📢🔒 P{self.myId}: diffusion synchrone '{payload}'")
+            
+            # Créer les événements d'attente pour chaque destinataire
+            ack_events = []
+            for dest_id in range(self.getNbProcess()):
+                if dest_id != self.myId:
+                    event_key = f"broadcast_ack_{self.myId}_{dest_id}"
+                    event = Event()
+                    with self.sync_comm_lock:
+                        self.sync_comm_events[event_key] = event
+                    ack_events.append(event)
+            
+            # Envoyer le message
+            timestamp = self._increment_clock_internal()
+            sync_broadcast = BroadcastSyncMessage(self.myId, timestamp, payload, sender_id)
+            PyBus.Instance().post(sync_broadcast)
+            
+            # Attendre tous les accusés de réception
+            for event in ack_events:
+                event.wait()
+            
+            print(f"✅ P{self.myId}: diffusion synchrone terminée")
+        else:
+            # Ce processus attend de recevoir
+            event_key = f"broadcast_sync_{sender_id}"
+            event = Event()
+            with self.sync_comm_lock:
+                self.sync_comm_events[event_key] = event
+            
+            print(f"⏳ P{self.myId}: attend diffusion synchrone de P{sender_id}")
+            event.wait()
+            print(f"📨 P{self.myId}: diffusion synchrone reçue de P{sender_id}")
+    
+    def sendToSync(self, payload, dest):
+        """
+        Envoi synchrone vers un destinataire spécifique
+        Bloque jusqu'à ce que le destinataire reçoive
+        """
+        print(f"📬🔒 P{self.myId} → P{dest}: envoi synchrone '{payload}'")
+        
+        # Créer l'événement d'attente
+        event_key = f"sendto_ack_{self.myId}_{dest}"
+        event = Event()
+        with self.sync_comm_lock:
+            self.sync_comm_events[event_key] = event
+        
+        # Envoyer le message
+        timestamp = self._increment_clock_internal()
+        sync_msg = SendToSyncMessage(self.myId, timestamp, payload, dest)
+        PyBus.Instance().post(sync_msg)
+        
+        # Attendre l'accusé de réception
+        event.wait()
+        print(f"✅ P{self.myId}: envoi synchrone vers P{dest} terminé")
+    
+    def recevFromSync(self, sender):
+        """
+        Réception synchrone depuis un expéditeur spécifique
+        Bloque jusqu'à recevoir le message
+        """
+        print(f"⏳ P{self.myId}: attend réception synchrone de P{sender}")
+        
+        # Créer l'événement d'attente
+        event_key = f"receive_sync_{sender}_{self.myId}"
+        event = Event()
+        with self.sync_comm_lock:
+            self.sync_comm_events[event_key] = event
+        
+        # Attendre le message
+        event.wait()
+        print(f"📨 P{self.myId}: réception synchrone de P{sender} terminée")
+    
+    def _cleanup(self):
+        """Nettoyage des ressources"""
+        self.alive = False
+        if self.token_thread and self.token_thread.is_alive():
+            self.token_thread.join()
+        PyBus.Instance().unregister(self)
+    
     def _pass_token(self):
         """Fait circuler le jeton au processus suivant"""
         next_id = (self.myId + 1) % self.getNbProcess()
