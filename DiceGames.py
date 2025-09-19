@@ -1,4 +1,4 @@
-# DiceGame.py - Exemple style "jeu de dés" avec le middleware Com
+# DiceGame.py
 import os
 import random
 from time import sleep
@@ -36,9 +36,9 @@ class DiceGameProcess(Thread):
             sleep(1)
             
             try:
-                # ========== Scénario du sujet original ==========
+                # ========== Scénario du dès ==========
                 
-                if self.myId == 0:  # Utiliser l'ID réel, pas le nom
+                if self.myId == 0:
                     if loop == 2:
                         print(f"\n=== P{self.myId} démarre le jeu ===")
                         self.com.sendTo("j'appelle 2 et je te recontacte après", 1)
@@ -68,7 +68,7 @@ class DiceGameProcess(Thread):
                         
                         self.com.releaseSC()
                 
-                elif self.myId == 1:  # Utiliser l'ID réel
+                elif self.myId == 1:
                     if loop == 3:
                         # Vérifier les messages reçus
                         if not self.com.mailbox.isEmpty():
@@ -99,7 +99,7 @@ class DiceGameProcess(Thread):
                         
                         self.com.releaseSC()
                 
-                elif self.myId == 2:  # Utiliser l'ID réel
+                elif self.myId == 2:
                     if loop == 5:
                         # Lire le message de P0 et répondre
                         if not self.com.mailbox.isEmpty():
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     print()
     
     try:
-        launch_dice_game(nbProcess=3, runningTime=40)  # 40 secondes au lieu de 30
+        launch_dice_game(nbProcess=3, runningTime=40)  # 40 secondes
     except Exception as e:
         print(f"❌ Erreur fatale: {e}")
         import traceback

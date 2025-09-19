@@ -8,7 +8,7 @@ class LamportMessage:
     def __init__(self, sender, timestamp, payload):
         self.sender = sender        # ID du processus qui envoie
         self.timestamp = timestamp  # Horloge de Lamport au moment de l'envoi
-        self.payload = payload      # Contenu du message (peut être n'importe quoi)
+        self.payload = payload      # Contenu du message
     
     def getSender(self):
         """Retourne l'ID de l'expéditeur"""

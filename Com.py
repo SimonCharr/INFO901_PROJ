@@ -1,4 +1,4 @@
-# Com.py - Version sans variables de classe
+# Com.py
 import threading
 from threading import Lock, Thread, Event, Semaphore
 from time import sleep
@@ -241,7 +241,7 @@ class Com:
         if not hasattr(message, 'to') or message.to != self.myId:
             return  # Pas pour nous
         
-        # Vérifier si c'est un message système (jeton)
+        # Vérifier si c'est un message système (token)
         if hasattr(message, 'payload') and message.payload == 'TOKEN':
             self._handle_token(message)
             return
@@ -258,11 +258,11 @@ class Com:
     def _start_token_management(self):
         """Démarre la gestion du jeton (appelé par le processus 0)"""
         def token_manager():
-            sleep(1.0)  # Laisser le temps aux autres de se connecter
+            sleep(1.0)  # Laisse le temps aux autres de se connecter
             # Créer et envoyer le jeton initial seulement si personne ne l'a demandé
             next_id = (self.myId + 1) % self.getNbProcess()
             token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
-            print(f"🎯 P{self.myId}: lance le jeton initial")
+            print(f" P{self.myId}: lance le jeton initial")
             PyBus.Instance().post(token_msg)
         
         self.token_thread = Thread(target=token_manager, daemon=True)
@@ -272,23 +272,20 @@ class Com:
         """Gestion de la réception du jeton"""
         with self.token_lock:
             if self.request_pending:
-                # On attendait le jeton
-                print(f"🔑 P{self.myId}: OBTIENT le jeton")
+                # Attente du jeton
+                print(f" P{self.myId}: OBTIENT le jeton")
                 self.token_held = True
                 self.token_event.set()
             else:
-                # Ne faire circuler le jeton que périodiquement pour éviter la surcharge
                 self._pass_token_delayed()
     
     def _pass_token_delayed(self):
         """Fait circuler le jeton avec un délai pour éviter la surcharge"""
         def delayed_pass():
-            sleep(0.2)  # Délai plus court
-            # Toujours faire circuler le jeton, même si on a une demande pending
-            # Car quelqu'un d'autre peut l'attendre
+            sleep(0.2)
+            # Toujours faire circuler le jeton, même si on a une demande en attente car quelqu'un d'autre peut l'attendre
             next_id = (self.myId + 1) % self.getNbProcess()
             token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
-            # print(f"🔄 P{self.myId}: passe le jeton à P{next_id}")  # Debug si besoin
             PyBus.Instance().post(token_msg)
         
         Thread(target=delayed_pass, daemon=True).start()
@@ -304,7 +301,7 @@ class Com:
         """
         Demande l'accès à la section critique (bloquant)
         """
-        print(f"🙋 P{self.myId}: demande la section critique")
+        print(f" P{self.myId}: demande la section critique")
         with self.token_lock:
             if self.token_held:
                 return  # On a déjà le jeton
@@ -319,7 +316,7 @@ class Com:
         """
         Libère la section critique
         """
-        print(f"🔓 P{self.myId}: libère la section critique")
+        print(f" P{self.myId}: libère la section critique")
         with self.token_lock:
             self.token_held = False
             self.request_pending = False
@@ -352,7 +349,7 @@ class Com:
     def _handle_sync_request(self):
         """Gestion des demandes de synchronisation (P0 uniquement)"""
         counter = self._increment_sync_counter()
-        print(f"🔄 P0: {counter}/{self.getNbProcess()} processus synchronisés")
+        print(f" P0: {counter}/{self.getNbProcess()} processus synchronisés")
         
         if counter >= self.getNbProcess():
             # Tous les processus sont arrivés à la barrière
@@ -375,7 +372,7 @@ class Com:
     @subscribe(threadMode=Mode.PARALLEL, onEvent=SyncRelease)
     def _on_sync_release(self, message):
         """Réception du signal de libération de synchronisation"""
-        # Mettre à jour l'horloge
+        # MAJ de l'horloge
         self._update_clock_on_receive(message.timestamp)
         self.sync_event.set()
     
@@ -404,7 +401,7 @@ class Com:
         """
         if self.myId == sender_id:
             # Ce processus diffuse
-            print(f"📢🔒 P{self.myId}: diffusion synchrone '{payload}'")
+            print(f" P{self.myId}: diffusion synchrone '{payload}'")
             
             # Créer les événements d'attente pour chaque destinataire
             ack_events = []
@@ -442,7 +439,7 @@ class Com:
         Envoi synchrone vers un destinataire spécifique
         Bloque jusqu'à ce que le destinataire reçoive
         """
-        print(f"📬🔒 P{self.myId} → P{dest}: envoi synchrone '{payload}'")
+        print(f" P{self.myId} → P{dest}: envoi synchrone '{payload}'")
         
         # Créer l'événement d'attente
         event_key = f"sendto_ack_{self.myId}_{dest}"
@@ -457,14 +454,14 @@ class Com:
         
         # Attendre l'accusé de réception
         event.wait()
-        print(f"✅ P{self.myId}: envoi synchrone vers P{dest} terminé")
+        print(f" P{self.myId}: envoi synchrone vers P{dest} terminé")
     
     def recevFromSync(self, sender):
         """
         Réception synchrone depuis un expéditeur spécifique
         Bloque jusqu'à recevoir le message
         """
-        print(f"⏳ P{self.myId}: attend réception synchrone de P{sender}")
+        print(f" P{self.myId}: attend réception synchrone de P{sender}")
         
         # Créer l'événement d'attente
         event_key = f"receive_sync_{sender}_{self.myId}"
@@ -476,6 +473,7 @@ class Com:
         event.wait()
         print(f"📨 P{self.myId}: réception synchrone de P{sender} terminée")
     
+
     # ========== GESTIONNAIRES DES MESSAGES SYNCHRONES ==========
     
     @subscribe(threadMode=Mode.PARALLEL, onEvent=BroadcastSyncMessage)
@@ -486,7 +484,7 @@ class Com:
         
         # Mettre à jour l'horloge
         my_timestamp = self._update_clock_on_receive(message.timestamp)
-        print(f"📻🔒 P{self.myId}: reçoit diffusion synchrone '{message.payload}' de P{message.sender}")
+        print(f" P{self.myId}: reçoit diffusion synchrone '{message.payload}' de P{message.sender}")
         
         # Ajouter à la boîte aux lettres
         self.mailbox.addMessage(message)
@@ -510,7 +508,7 @@ class Com:
         
         # Mettre à jour l'horloge
         my_timestamp = self._update_clock_on_receive(message.timestamp)
-        print(f"📨🔒 P{self.myId}: reçoit envoi synchrone '{message.payload}' de P{message.sender}")
+        print(f" P{self.myId}: reçoit envoi synchrone '{message.payload}' de P{message.sender}")
         
         # Ajouter à la boîte aux lettres
         self.mailbox.addMessage(message)

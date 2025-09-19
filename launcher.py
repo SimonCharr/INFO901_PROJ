@@ -1,4 +1,4 @@
-# Launcher.py - Version sans warnings de dépréciation
+# Launcher.py
 import os
 from time import sleep
 from threading import Thread
@@ -18,7 +18,7 @@ class Process(Thread):
         # Récupérer les infos du communicateur
         self.nbProcess = self.com.getNbProcess()
         self.myId = self.com.getMyId()
-        self.name = name  # Utiliser l'attribut name directement
+        self.name = name 
         
         self.alive = True
         self.start()
@@ -31,7 +31,7 @@ class Process(Thread):
         print(f"🚀 {self.name} (ID={self.myId}) démarré")
         
         while self.alive and loop < 15:  # 15 cycles pour voir toutes les fonctionnalités
-            sleep(1.5)  # Pause pour lisibilité
+            sleep(1.5)  # Pause
             
             try:
                 # ========== PHASE 1: Communication asynchrone ==========
@@ -85,7 +85,6 @@ class Process(Thread):
                 
                 if loop == 12 and self.myId == 1:
                     print(f"\n=== PHASE 4: Test horloge de Lamport ===")
-                    # Incrémenter manuellement l'horloge
                     old_clock = self.com.lamport_clock
                     new_clock = self.com.inc_clock()
                     print(f"🕒 {self.name}: horloge {old_clock} → {new_clock}")
@@ -93,13 +92,13 @@ class Process(Thread):
                     # Envoyer un message pour voir l'effet
                     self.com.sendTo("Test horloge", 0)
                 
-                # ========== PHASE 5: Communication synchrone (si implémentée) ==========
+                # ========== PHASE 5: Communication synchrone ==========
                 
                 if loop == 14:
                     if self.myId == 0:
                         print(f"\n=== PHASE 5: Communication synchrone ===")
                         try:
-                            # Test broadcastSync si disponible
+                            # Test broadcastSync
                             self.com.broadcastSync("Message synchrone de P0", 0)
                         except Exception as e:
                             print(f"⚠️ Communication synchrone pas encore implémentée: {e}")
@@ -119,14 +118,18 @@ class Process(Thread):
         """Attend que le processus se termine"""
         self.join()
 
-def launch(nbProcess=3, runningTime=25):
+def launch(nbProcess=None, runningTime=25):
     """
     Lance l'expérience avec le middleware Com
     
     Args:
-        nbProcess (int): Nombre de processus à lancer (défaut: 3)
+        nbProcess (int): Nombre de processus à lancer (None = lire variable d'environnement)
         runningTime (int): Durée en secondes (défaut: 25)
     """
+    # Lire la variable d'environnement si nbProcess n'est pas fourni
+    if nbProcess is None:
+        nbProcess = int(os.environ.get('NB_PROCESSES', 3))
+    
     # Configurer le nombre de processus via variable d'environnement
     os.environ['NB_PROCESSES'] = str(nbProcess)
     
@@ -189,7 +192,7 @@ def _cleanup_temp_files():
             if os.path.exists(filepath):
                 os.remove(filepath)
         except:
-            pass  # Ignorer les erreurs de nettoyage
+            pass
 
 if __name__ == '__main__':
     print("🔬 Test du middleware Com avec communication distribuée")
@@ -202,8 +205,8 @@ if __name__ == '__main__':
     print("   • Attribution automatique d'IDs (sans variables de classe)")
     print()
     
-    # Configuration par défaut
-    NB_PROCESSES = 3
+    # Configuration : lire variable d'environnement ou utiliser défaut
+    NB_PROCESSES = int(os.environ.get('NB_PROCESSES', 3))
     RUNNING_TIME = 30  # 30 secondes pour voir toutes les phases
     
     try:
