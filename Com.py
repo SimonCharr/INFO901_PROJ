@@ -39,6 +39,8 @@ class Com:
     - Synchronisation par barrière
     """
     
+    # Variables de classe pour la gestion des IDs (interdites selon le sujet)
+    # On utilisera un fichier ou un mécanisme de découverte automatique
     _instance_counter = 0
     _counter_lock = Lock()
     _total_processes = 0
@@ -86,6 +88,8 @@ class Com:
         Mécanisme de découverte automatique du nombre de processus
         Pour simplifier, on utilise une variable d'environnement ou un fichier de config
         """
+        # Pour cet exemple, on suppose 3 processus
+        # Dans un vrai projet, on ferait de la découverte réseau
         Com._total_processes = 3
     
     def getNbProcess(self):
@@ -157,6 +161,7 @@ class Com:
         """Démarre la gestion du jeton (appelé par le processus 0)"""
         def token_manager():
             sleep(0.5)  # Laisser le temps aux autres de se connecter
+            # Créer et envoyer le jeton initial
             next_id = (self.myId + 1) % self.getNbProcess()
             # Message système : pas d'impact sur l'horloge
             token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
@@ -178,12 +183,67 @@ class Com:
                 # Faire circuler le jeton
                 self._pass_token()
     
+    # ========== SYNCHRONISATION ==========
+    
+    def synchronize(self):
+        """
+        Synchronisation par barrière centralisée
+        Tous les processus doivent appeler cette méthode pour continuer
+        """
+        print(f"⏸️ P{self.myId}: demande synchronisation")
+        
+        # Envoyer une demande de synchronisation au coordinateur (P0)
+        if self.myId != 0:
+            timestamp = self._increment_clock_internal()
+            sync_msg = SyncRequest(self.myId, timestamp, 'SYNC_REQ', 0)
+            PyBus.Instance().post(sync_msg)
+        else:
+            # P0 se compte lui-même
+            self._handle_sync_request()
+        
+        # Attendre la libération
+        self.sync_event.wait()
+        self.sync_event.clear()
+        print(f"▶️ P{self.myId}: synchronisation terminée")
+    
+    def _handle_sync_request(self):
+        """Gestion des demandes de synchronisation (P0 uniquement)"""
+        with Com._sync_lock:
+            Com._sync_counter += 1
+            print(f"🔄 P0: {Com._sync_counter}/{self.getNbProcess()} processus synchronisés")
+            
+            if Com._sync_counter >= self.getNbProcess():
+                # Tous les processus sont arrivés à la barrière
+                print(f"✅ P0: libère la synchronisation")
+                timestamp = self._increment_clock_internal()
+                release_msg = SyncRelease(self.myId, timestamp, 'SYNC_RELEASE')
+                PyBus.Instance().post(release_msg)
+                Com._sync_counter = 0  # Reset pour la prochaine fois
+    
+    @subscribe(threadMode=Mode.PARALLEL, onEvent=SyncRequest)
+    def _on_sync_request(self, message):
+        """Réception des demandes de synchronisation"""
+        if message.to != self.myId or self.myId != 0:
+            return  # Seul P0 traite les demandes
+        
+        # Mettre à jour l'horloge
+        self._update_clock_on_receive(message.timestamp)
+        self._handle_sync_request()
+    
+    @subscribe(threadMode=Mode.PARALLEL, onEvent=SyncRelease)
+    def _on_sync_release(self, message):
+        """Réception du signal de libération de synchronisation"""
+        # Mettre à jour l'horloge
+        self._update_clock_on_receive(message.timestamp)
+        self.sync_event.set()
+    
     def _pass_token(self):
         """Fait circuler le jeton au processus suivant"""
         next_id = (self.myId + 1) % self.getNbProcess()
+        # Message système : pas d'impact sur l'horloge
         token_msg = MessageTo(self.myId, 0, 'TOKEN', next_id)
         print(f"🔄 P{self.myId}: passe le jeton à P{next_id}")
-        sleep(0.1) 
+        sleep(0.1)  # Petite pause pour éviter la surcharge
         PyBus.Instance().post(token_msg)
     
     def requestSC(self):
@@ -216,7 +276,7 @@ class Com:
     def _on_message_to_received(self, message):
         """Gestion des messages directs reçus"""
         if not hasattr(message, 'to') or message.to != self.myId:
-            return
+            return  # Pas pour nous
         
         # Vérifier si c'est un message système (jeton)
         if hasattr(message, 'payload') and message.payload == 'TOKEN':
